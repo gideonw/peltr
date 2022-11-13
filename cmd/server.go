@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-	"net"
 	"net/http"
 
 	"github.com/gideonw/peltr/pkg/server"
@@ -18,30 +16,18 @@ var ServerCmd ServerCommand
 
 func (sc *ServerCommand) Execute(args []string) error {
 	m := server.NewMetricsStore()
-	runtime := server.NewRuntime(m)
+	runtime := server.NewRuntime(m, sc.Port)
 
-	http.Handle("/metrics", promhttp.Handler())
-	go func() { http.ListenAndServe(":2112", nil) }()
-
-	sock, err := net.ListenTCP("tcp", &net.TCPAddr{Port: sc.Port})
+	err := runtime.Listen()
 	if err != nil {
 		return err
 	}
-	defer func() {
-		err := sock.Close()
-		if err != nil {
-			fmt.Println(err)
-		}
-	}()
-	fmt.Println("Server listening on ", sc.Port)
+	defer runtime.Close()
 
-	for {
-		conn, err := sock.Accept()
-		if err != nil {
-			fmt.Println("Error accepting connection", err)
-			continue
-		}
-		wc := runtime.AddWorker(conn)
-		go wc.Handle()
-	}
+	go runtime.HandleConnections()
+
+	http.Handle("/metrics", promhttp.Handler())
+	http.ListenAndServe(":2112", nil)
+
+	return nil
 }
