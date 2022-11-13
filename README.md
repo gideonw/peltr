@@ -36,6 +36,7 @@ Assign a job to a worker
 
 Server:
 `assign00<jsondata>\n\r`
+
 Data in this case will be a list of endpoints and rates.
 
 Client:
