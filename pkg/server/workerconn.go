@@ -1,12 +1,11 @@
 package server
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"net"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -20,7 +19,7 @@ var (
 type WorkerConnection struct {
 	Conn     net.Conn
 	ID       string
-	Capacity uint64
+	Capacity uint
 	/// State
 	// new
 	// hello
@@ -29,7 +28,7 @@ type WorkerConnection struct {
 	// idle-ping
 	// working
 	State       string
-	LastState   string
+	LastSeen    time.Time
 	AssignedJob string
 	Debug       bool
 	// TODO handles to provide state to the runtime
@@ -108,8 +107,8 @@ func (wc *WorkerConnection) Handle() {
 		}
 
 		command, message := proto.ChompCommand(data)
-		switch string(command) {
-		case string(proto.CommandHello):
+		switch 0 {
+		case bytes.Compare(command, proto.CommandHello):
 			if wc.State != "new" {
 				fmt.Printf("Expected 'new' state, got %s. Disconnecting", wc.State)
 				wc.Conn.Close()
@@ -117,18 +116,17 @@ func (wc *WorkerConnection) Handle() {
 				return
 			}
 
-			msgStr := string(message)
-			sep := strings.Index(msgStr, ",")
-			end := strings.Index(msgStr, string(proto.MESSAGE_TERMINATOR))
-			wc.ID = msgStr[0:sep]
-			cap, err := strconv.ParseUint(msgStr[sep+1:end], 10, 64)
+			data, err := proto.ParseIdentify(message)
 			if err != nil {
-				fmt.Println("Error parsing hello command message capacity", err)
+				fmt.Println(err)
+				continue
 			}
-			wc.Capacity = cap
+
+			wc.ID = data.ID
+			wc.Capacity = data.Capacity
 
 			wc.updateState("hello")
-		case string(proto.CommandPong):
+		case bytes.Compare(command, proto.CommandPong):
 			if wc.State != "idle-ping" {
 				fmt.Printf("Expected 'idle-ping' state, got %s. Disconnecting", wc.State)
 				wc.Conn.Close()
@@ -146,6 +144,7 @@ func (wc *WorkerConnection) updateState(state string) {
 	if wc.Debug {
 		fmt.Println("sc:", state)
 	}
+	wc.LastSeen = time.Now()
 	wc.State = state
 }
 

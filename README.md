@@ -35,12 +35,12 @@ Client:
 Assign a job to a worker
 
 Server:
-`assign00<jsondata>\n\r`
+`assign00<gobdata>\n\r`
 
-Data in this case will be a list of endpoints and rates.
+Data in this case will be a list of ids, endpoints, and rates.
 
 Client:
-`assign00<jsondata>\n\r`
+`assign00<gobdata>\n\r`
 
 Data in this case will be an acknowledgement of receipt.
 

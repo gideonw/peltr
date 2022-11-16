@@ -1,19 +1,20 @@
 package proto
 
+import (
+	"bytes"
+	"encoding/gob"
+)
+
 var (
 	COMMAND_LEN        = 8
 	MESSAGE_TERMINATOR = []byte("\n\r")
-	CommandHello       = MakeCommand([]byte("hello"))
-	CommandPing        = MakeCommand([]byte("ping"))
-	CommandPong        = MakeCommand([]byte("pong"))
-	CommandAssign      = MakeCommand([]byte("assign"))
-	CommandWorking     = MakeCommand([]byte("working"))
 )
 
-func MakeCommand(cmd []byte) []byte {
-	b := make([]byte, COMMAND_LEN)
-	copy(b, []byte(cmd))
-	return b
+func MakeMessageStruct(command []byte, data interface{}) []byte {
+	var b bytes.Buffer
+	enc := gob.NewEncoder(&b)
+	enc.Encode(data)
+	return MakeMessageByte(command, b.Bytes())
 }
 
 func MakeMessageString(command []byte, data string) []byte {
@@ -27,12 +28,4 @@ func MakeMessageByte(command, data []byte) []byte {
 	copy(b[COMMAND_LEN+len(data):], MESSAGE_TERMINATOR)
 
 	return b
-}
-
-func ChompCommand(d []byte) (command, data []byte) {
-	if len(d) == COMMAND_LEN+len(MESSAGE_TERMINATOR) {
-		return d[0:COMMAND_LEN], d[0:0]
-	}
-
-	return d[0:COMMAND_LEN], d[COMMAND_LEN : len(d)-2]
 }

@@ -21,7 +21,7 @@ type workerRuntime struct {
 	port    int
 
 	State    string
-	Capacity int
+	Capacity uint
 	ID       string
 	conn     net.Conn
 }
@@ -82,7 +82,10 @@ func (wr *workerRuntime) Handle() {
 			command, msg := proto.ChompCommand(b)
 			switch string(command) {
 			case string(proto.CommandHello):
-				n, err := wr.conn.Write(proto.MakeMessageString(proto.CommandHello, "a,10"))
+				n, err := wr.conn.Write(proto.MakeMessageStruct(proto.CommandHello, proto.Identify{
+					ID:       wr.ID,
+					Capacity: wr.Capacity,
+				}))
 				if err != nil {
 					fmt.Println("Error sending hello", err)
 				}

@@ -26,6 +26,9 @@ func (sc *ServerCommand) Execute(args []string) error {
 
 	go runtime.HandleConnections()
 
+	http.HandleFunc("/workers", runtime.HandleListWorkers)
+	http.HandleFunc("/jobs", runtime.HandleListJobs)
+	http.HandleFunc("/job", runtime.HandleJob)
 	http.Handle("/metrics", promhttp.Handler())
 	http.ListenAndServe(":2112", nil)
 
