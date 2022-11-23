@@ -11,12 +11,7 @@ type Identify struct {
 }
 
 type Assign struct {
-	Jobs []struct {
-		ID      string
-		URL     string
-		Rate    uint
-		Seconds uint
-	}
+	Jobs []Job `json:"jobs"`
 }
 
 func ParseIdentify(b []byte) (Identify, error) {

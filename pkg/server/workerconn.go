@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gideonw/peltr/pkg/proto"
+	"github.com/rs/zerolog"
 )
 
 var (
@@ -17,6 +18,7 @@ var (
 )
 
 type WorkerConnection struct {
+	log      zerolog.Logger
 	Conn     net.Conn
 	ID       string
 	Capacity uint
@@ -29,50 +31,51 @@ type WorkerConnection struct {
 	// working
 	State       string
 	LastSeen    time.Time
-	AssignedJob string
-	Debug       bool
+	AssignedJob proto.Job
 	// TODO handles to provide state to the runtime
 }
 
 // NewWorkerConnection handles the connection and state for a worker connection
-func NewWorkerConnection(conn net.Conn) *WorkerConnection {
+func NewWorkerConnection(logger zerolog.Logger, conn net.Conn) *WorkerConnection {
 	return &WorkerConnection{
+		log:      logger,
 		ID:       "",
 		Conn:     conn,
 		Capacity: 0,
 		State:    "new",
-		Debug:    true,
 	}
 }
 
-func (wc *WorkerConnection) AssignJob() (bool, error) {
+func (wc *WorkerConnection) AssignJob(job proto.Job) (bool, error) {
 	if wc.State != "idle" {
 		return false, nil
 	}
+	wc.AssignedJob = job
 
 	return true, nil
 }
 
 func (wc *WorkerConnection) Handle() {
-	fmt.Println(wc.Conn.RemoteAddr(), wc.Conn.LocalAddr())
+	wc.log.Info().Str("remote", wc.Conn.RemoteAddr().String()).Str("local", wc.Conn.LocalAddr().String()).Msg("handling connection")
 	lastPing := time.Now().Add(2 * time.Second)
 	for {
 		var err error
 		data := make([]byte, 256)
 
 		// Write to the client depending on state
+		wc.log.Debug().Str("state", wc.State).Msg("process state")
 		switch wc.State {
 		case "new":
 			err = wc.sendHello()
 		case "hello":
-			fmt.Println("Hello worker ", wc.ID)
 			wc.updateState("idle")
 			continue
 		case "idle":
 			// Loop while idle to wait for a job or ping
 			for {
-				if wc.AssignedJob != "" {
+				if wc.AssignedJob.ID != "" {
 					// TODO: Job logic
+					err = wc.sendAssign()
 					break
 				} else if time.Now().Sub(lastPing) > PING_INTERVAL {
 					err = wc.sendPing()
@@ -80,29 +83,31 @@ func (wc *WorkerConnection) Handle() {
 					break
 				}
 			}
+		case "working":
+			wc.log.Info().Msg("working")
+		case "done":
+			fmt.Println("done")
 		}
 		// Check for write errors
 		if errors.Is(err, syscall.EPIPE) {
-			fmt.Println("Connection closed", err)
+			wc.log.Error().Err(err).Msg("EPIPE Connection closed")
 			return
 		} else if err != nil {
-			fmt.Println(err)
+			wc.log.Error().Err(err).Msg("Connection error")
 			return
 		}
 
 		// Read from the client
 		n, err := wc.Conn.Read(data)
-		if wc.Debug {
-			fmt.Printf("Read %d bytes\n", n)
-		}
+		wc.log.Debug().Int("bytes", n).Msg("read")
 		if errors.Is(err, syscall.EPIPE) {
-			fmt.Println("Connection closed", err)
+			wc.log.Error().Err(err).Msg("EPIPE Connection closed")
 			return
 		} else if err == io.EOF {
-			fmt.Println("Connection closed. EOF", err)
+			wc.log.Error().Err(err).Msg("EOF Connection closed")
 			return
 		} else if err != nil {
-			fmt.Println(err)
+			wc.log.Error().Err(err).Msg("Connection error")
 			return
 		}
 
@@ -110,7 +115,7 @@ func (wc *WorkerConnection) Handle() {
 		switch 0 {
 		case bytes.Compare(command, proto.CommandHello):
 			if wc.State != "new" {
-				fmt.Printf("Expected 'new' state, got %s. Disconnecting", wc.State)
+				wc.log.Error().Msgf("Expected 'new' state, got %s. Disconnecting", wc.State)
 				wc.Conn.Close()
 				wc.updateState("closed")
 				return
@@ -118,58 +123,60 @@ func (wc *WorkerConnection) Handle() {
 
 			data, err := proto.ParseIdentify(message)
 			if err != nil {
-				fmt.Println(err)
+				wc.log.Error().Err(err)
 				continue
 			}
 
 			wc.ID = data.ID
+			wc.log = wc.log.With().Str("id", wc.ID).Logger()
 			wc.Capacity = data.Capacity
 
 			wc.updateState("hello")
 		case bytes.Compare(command, proto.CommandPong):
 			if wc.State != "idle-ping" {
-				fmt.Printf("Expected 'idle-ping' state, got %s. Disconnecting", wc.State)
+				wc.log.Error().Msgf("Expected 'idle-ping' state, got %s. Disconnecting", wc.State)
 				wc.Conn.Close()
 				return
 			}
 
 			lastPing = time.Now()
 			wc.updateState("idle")
+		case bytes.Compare(command, proto.CommandWorking):
+			wc.updateState("working")
 		}
 	}
 
 }
 
 func (wc *WorkerConnection) updateState(state string) {
-	if wc.Debug {
-		fmt.Println("sc:", state)
-	}
+	wc.log.Debug().Str("state", state).Msg("state change")
 	wc.LastSeen = time.Now()
 	wc.State = state
 }
 
 func (wc *WorkerConnection) sendHello() error {
-	if wc.Debug {
-		fmt.Println("Sending Hello")
-	}
-
+	wc.log.Debug().Str("type", "hello").Msg("send")
 	n, err := wc.Conn.Write(proto.MakeMessageByte(proto.CommandHello, nil))
-	if wc.Debug {
-		fmt.Printf("Wrote %d bytes\n", n)
-	}
+	wc.log.Debug().Int("bytes", n).Msg("write")
 
 	return err
 }
 
 func (wc *WorkerConnection) sendPing() error {
-	if wc.Debug {
-		fmt.Println("Sending Ping")
-	}
-
+	wc.log.Debug().Str("type", "ping").Msg("send")
 	n, err := wc.Conn.Write(proto.MakeMessageByte(proto.CommandPing, nil))
-	if wc.Debug {
-		fmt.Printf("Wrote %d bytes\n", n)
-	}
+	wc.log.Debug().Int("bytes", n).Msg("write")
 
 	return err
+}
+
+func (wc *WorkerConnection) sendAssign() error {
+	wc.log.Debug().Str("type", "assign").Msg("send")
+	n, err := wc.Conn.Write(proto.MakeMessageStruct(proto.CommandAssign, proto.Assign{Jobs: []proto.Job{wc.AssignedJob}}))
+	if err != nil {
+		return err
+	}
+	wc.log.Debug().Int("bytes", n).Msg("write")
+
+	return nil
 }

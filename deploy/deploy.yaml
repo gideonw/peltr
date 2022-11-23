@@ -1,0 +1,154 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app: peltr
+  name: peltr
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app: peltr
+  name: peltr
+  namespace: peltr
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: peltr-server
+  namespace: peltr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: peltr-server
+  template:
+    metadata:
+      labels:
+        app: peltr-server
+    spec:
+      containers:
+        - name: peltr-server
+          imagePullPolicy: Always
+          image: gideonw/peltr:latest
+          args: ["server"]
+          ports:
+            - name: web
+              containerPort: 8010
+            - name: tcp
+              containerPort: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: peltr-worker
+  namespace: peltr
+spec:
+  replicas: 10
+  selector:
+    matchLabels:
+      app: peltr-worker
+  template:
+    metadata:
+      labels:
+        app: peltr-worker
+    spec:
+      containers:
+        - name: peltr-worker
+          imagePullPolicy: Always
+          image: gideonw/peltr:latest
+          args: ["worker", "--host=peltr-server.peltr.svc.cluster.local"]
+          ports:
+            - name: web
+              containerPort: 8010
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: peltr-server-api
+  namespace: peltr
+  labels:
+    app: peltr-server
+spec:
+  selector:
+    app: peltr-server
+  ports:
+    - name: web
+      port: 8010
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: peltr-server
+  namespace: peltr
+  labels:
+    app: peltr-server
+spec:
+  selector:
+    app: peltr-server
+  ports:
+    - name: tcp
+      port: 8000
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: peltr-worker
+  namespace: peltr
+  labels:
+    app: peltr-worker
+spec:
+  selector:
+    app: peltr-worker
+  ports:
+    - name: web
+      port: 8010
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: peltr-server
+  namespace: peltr
+  labels:
+    tier: server
+spec:
+  selector:
+    matchLabels:
+      app: peltr-server
+  endpoints:
+    - port: web
+      interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: peltr-worker
+  namespace: peltr
+  labels:
+    tier: worker
+spec:
+  selector:
+    matchLabels:
+      app: peltr-worker
+  endpoints:
+    - port: web
+      interval: 30s
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: peltr
+  namespace: peltr
+spec:
+  rules:
+    - host: peltr.localhost
+      http:
+        paths:
+          - pathType: Prefix
+            path: "/"
+            backend:
+              service:
+                name: "peltr-server-api"
+                port:
+                  name: web

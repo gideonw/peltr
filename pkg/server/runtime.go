@@ -1,16 +1,18 @@
 package server
 
 import (
-	"encoding/json"
-	"fmt"
-	"io"
 	"net"
 	"net/http"
+	"time"
+
+	"github.com/gideonw/peltr/pkg/proto"
+	"github.com/rs/zerolog"
 )
 
 type Runtime interface {
 	Listen() error
 	HandleConnections()
+	ControlLoop()
 	Close()
 	AddWorker(conn net.Conn) *WorkerConnection
 	HandleJob(rw http.ResponseWriter, req *http.Request)
@@ -20,19 +22,21 @@ type Runtime interface {
 
 type runtime struct {
 	metrics Metrics
+	log     zerolog.Logger
 	socket  *net.TCPListener
 	port    int
 	Workers []*WorkerConnection
-	Jobs    []Job
+	Jobs    []proto.Job
 }
 
-func NewRuntime(m Metrics, port int) Runtime {
+func NewRuntime(m Metrics, logger zerolog.Logger, port int) Runtime {
 	return &runtime{
 		metrics: m,
+		log:     logger,
 		socket:  nil,
 		port:    port,
 		Workers: []*WorkerConnection{},
-		Jobs:    []Job{},
+		Jobs:    []proto.Job{},
 	}
 }
 
@@ -41,21 +45,46 @@ func (r *runtime) Listen() error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("Server listening on ", r.port)
+	r.log.Info().Int("port", r.port).Msg("server listening")
 	r.socket = sock
 
 	return nil
 }
 
 func (r *runtime) HandleConnections() {
+
 	for {
 		conn, err := r.socket.Accept()
 		if err != nil {
-			fmt.Println("Error accepting connection", err)
+			r.log.Error().Err(err).Msg("error accepting connection")
 			continue
 		}
 		wc := r.AddWorker(conn)
 		go wc.Handle()
+	}
+}
+
+func (r *runtime) ControlLoop() {
+	for {
+		if len(r.Jobs) <= 0 {
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		// Assign jobs to workers
+		for i := range r.Workers {
+			if r.Workers[i].State == "idle" {
+				job := r.Jobs[0]
+				success, err := r.Workers[i].AssignJob(job)
+				if err != nil {
+					r.log.Error().Err(err)
+					continue
+				}
+				if !success {
+					r.log.Info().Str("workerID", r.Workers[i].ID).Str("workerState", r.Workers[i].State).Msg("Unable to assign job")
+				}
+				r.Jobs = r.Jobs[0:]
+			}
+		}
 	}
 }
 
@@ -64,7 +93,7 @@ func (r *runtime) Close() {
 }
 
 func (r *runtime) AddWorker(conn net.Conn) *WorkerConnection {
-	wc := NewWorkerConnection(conn)
+	wc := NewWorkerConnection(r.log, conn)
 	r.Workers = append(r.Workers, wc)
 
 	r.metrics.IncConnections()
@@ -72,63 +101,12 @@ func (r *runtime) AddWorker(conn net.Conn) *WorkerConnection {
 	return wc
 }
 
-func (r *runtime) HandleJob(rw http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodPost {
-		rw.WriteHeader(http.StatusMethodNotAllowed)
-		return
+func countWorkersInState(workers []*WorkerConnection, state string) int {
+	count := 0
+	for i := range workers {
+		if workers[i].State == state {
+			count += 1
+		}
 	}
-
-	b, err := io.ReadAll(req.Body)
-	if err != nil {
-		rw.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	var j Job
-
-	err = json.Unmarshal(b, &j)
-	if err != nil {
-		rw.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	r.Jobs = append(r.Jobs, j)
-}
-
-func (r *runtime) HandleListJobs(rw http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodGet {
-		rw.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-
-	b, err := json.Marshal(r.Jobs)
-	if err != nil {
-		rw.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	_, err = rw.Write(b)
-	if err != nil {
-		rw.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-}
-
-func (r *runtime) HandleListWorkers(rw http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodGet {
-		rw.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-
-	b, err := json.Marshal(r.Workers)
-	if err != nil {
-		rw.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	_, err = rw.Write(b)
-	if err != nil {
-		rw.WriteHeader(http.StatusInternalServerError)
-		return
-	}
+	return count
 }

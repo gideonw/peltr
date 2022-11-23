@@ -8,6 +8,7 @@ import (
 
 	"github.com/gideonw/peltr/pkg/proto"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 )
 
 type WorkerRuntime interface {
@@ -18,6 +19,8 @@ type WorkerRuntime interface {
 
 type workerRuntime struct {
 	metrics Metrics
+	log     zerolog.Logger
+	host    string
 	port    int
 
 	State    string
@@ -26,13 +29,15 @@ type workerRuntime struct {
 	conn     net.Conn
 }
 
-func NewRuntime(m Metrics, port int) WorkerRuntime {
+func NewRuntime(m Metrics, logger zerolog.Logger, host string, port int) WorkerRuntime {
 	id, err := uuid.NewRandom()
 	if err != nil {
 		panic(err)
 	}
 	return &workerRuntime{
+		log:      logger,
 		metrics:  m,
+		host:     host,
 		port:     port,
 		State:    "new",
 		Capacity: 10,
@@ -47,14 +52,14 @@ func (wr *workerRuntime) Connect() error {
 	var err error
 
 	for retryCount > 0 && wr.conn == nil {
-		wr.conn, err = net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", wr.port))
+		wr.conn, err = net.Dial("tcp", fmt.Sprintf("%s:%d", wr.host, wr.port))
 		if err != nil {
-			fmt.Println(err)
+			wr.log.Error().Err(err)
 			retryCount -= 1
 		}
 		time.Sleep(2 * time.Second)
 	}
-	fmt.Println("Worker connected on ", wr.conn.RemoteAddr())
+	wr.log.Info().Str("addr", wr.conn.RemoteAddr().String()).Msg("worker connected")
 
 	return nil
 }
@@ -73,13 +78,16 @@ func (wr *workerRuntime) Handle() {
 			start = time.Now()
 			n, err := wr.conn.Read(b)
 			if err == io.EOF {
-				fmt.Println("Disconnected", err)
+				wr.log.Error().Err(err).Msg("disconnected")
 				break
 			} else if err != nil {
-				fmt.Println("Error reading from conn", err)
+				wr.log.Error().Err(err).Msg("error reading from conn")
 			}
-			fmt.Println("Read from conn", n, string(b))
+			wr.log.Debug().Int("bytes", n).Msg("read from conn")
+
 			command, msg := proto.ChompCommand(b)
+			wr.log.Debug().Str("cmd", string(command)).Msg("chomp")
+			wr.log.Trace().Bytes("msg", msg).Msg("chomp")
 			switch string(command) {
 			case string(proto.CommandHello):
 				n, err := wr.conn.Write(proto.MakeMessageStruct(proto.CommandHello, proto.Identify{
@@ -87,26 +95,33 @@ func (wr *workerRuntime) Handle() {
 					Capacity: wr.Capacity,
 				}))
 				if err != nil {
-					fmt.Println("Error sending hello", err)
+					wr.log.Error().Str("type", "hello").Err(err).Msg("error sending")
 				}
-				fmt.Printf("Wrote %d b\n", n)
+				wr.log.Info().Str("type", "hello").Int("bytes", n).Msg("wrote")
 			case string(proto.CommandPing):
 				n, err := wr.conn.Write(proto.MakeMessageByte(proto.CommandPong, nil))
 				if err != nil {
-					fmt.Println("Error sending pong", err)
+					wr.log.Error().Str("type", "pong").Err(err).Msg("error sending")
 				}
-				fmt.Printf("Wrote %d b\n", n)
+				wr.log.Info().Str("type", "pong").Int("bytes", n).Msg("wrote")
 
 			case string(proto.CommandAssign):
+				// Parse Job
+				job, err := proto.ParseAssign(msg)
+				if err != nil {
+					wr.log.Error().Str("type", "assign").Err(err).Msg("error parsing message")
+				}
+				go HandleJob(wr.log, job.Jobs[0])
+
 				n, err := wr.conn.Write(proto.MakeMessageByte(proto.CommandWorking, nil))
 				if err != nil {
-					fmt.Println("Error sending pong", err)
+					wr.log.Error().Str("type", "working").Err(err).Msg("error sending")
 				}
-				fmt.Printf("Wrote %d b\n", n)
+				wr.log.Info().Str("type", "working").Int("bytes", n).Msg("wrote")
 
 			default:
-				fmt.Printf("Unknown command '%s','%s'\n", command, msg)
-				fmt.Printf("wat '%v' '%v' '%v'", b, string(b), "hello")
+				wr.log.Error().Msgf("Unknown command '%s','%s'\n", command, msg)
+				wr.log.Error().Msgf("wat '%v' '%v' '%v'", b, string(b), "hello")
 			}
 		}
 	}
