@@ -62,6 +62,7 @@ func (r *runtime) HandleConnections() {
 			r.log.Error().Err(err).Msg("error accepting connection")
 			continue
 		}
+		r.metrics.IncConnections()
 		wc := r.AddWorker(conn)
 		go wc.Handle()
 	}

@@ -11,7 +11,7 @@ import (
 
 type Options struct {
 	// Example of verbosity with level
-	Verbose []bool `short:"v" long:"verbose" description:"Verbose output"`
+	Verbose []bool `short:"v" long:"verbose" description:"Verbose output" env:"DEBUG"`
 }
 
 var options Options

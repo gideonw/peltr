@@ -138,6 +138,9 @@ func (wr *workerRuntime) scheduler() {
 	jw := NewJobWorker(wr.log, job)
 	wr.Workers = append(wr.Workers, jw)
 
+	// metrics
+	wr.metrics.IncJobs()
+
 	// Start the job handler
 	go jw.HandleJob()
 }
