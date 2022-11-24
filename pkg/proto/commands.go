@@ -2,10 +2,10 @@ package proto
 
 var (
 	CommandHello   = MakeCommand([]byte("hello"))
-	CommandPing    = MakeCommand([]byte("ping"))
-	CommandPong    = MakeCommand([]byte("pong"))
 	CommandAssign  = MakeCommand([]byte("assign"))
 	CommandWorking = MakeCommand([]byte("working"))
+	CommandStatus  = MakeCommand([]byte("status"))
+	CommandAccept  = MakeCommand([]byte("accept"))
 )
 
 func MakeCommand(cmd []byte) []byte {

@@ -22,6 +22,7 @@ func init() {
 	// init gob wire types
 	gob.RegisterName("Assign", &proto.Assign{})
 	gob.RegisterName("Job", &proto.Job{})
+	gob.RegisterName("Update", &[]proto.Update{})
 
 	// init commands
 	parser.AddCommand("server",

@@ -9,44 +9,62 @@ import (
 	"github.com/rs/zerolog"
 )
 
-type JobPool struct {
+type JobWorker struct {
+	log zerolog.Logger
+
+	Done    bool
+	Results map[int]int
+	Job     proto.Job
 }
 
-func HandleJob(log zerolog.Logger, j proto.Job) {
+func NewJobWorker(log zerolog.Logger, j proto.Job) JobWorker {
+	return JobWorker{
+		log:     log,
+		Done:    false,
+		Results: make(map[int]int),
+		Job:     j,
+	}
+}
+
+func (jw *JobWorker) HandleJob() {
 	// done := make(chan bool)
 	ticker := time.NewTicker(10 * time.Millisecond)
 
-	stats := make(map[int]int)
 	count := 0
 	errcount := 0
 	for range ticker.C {
-		if count+errcount >= j.Req {
+		if count+errcount >= jw.Job.Req {
 			ticker.Stop()
-			e := log.Debug()
-			for k, v := range stats {
+			e := jw.log.Debug()
+			for k, v := range jw.Results {
 				e.Int(fmt.Sprint(k), v)
 			}
 			e.Msg("job complete")
+			ticker.Stop()
 			break
 		}
 
 		// Make request
-		code, r, err := makeRequest(j.URL)
+		code, r, dur, err := makeRequest(jw.Job.URL)
 		if err != nil {
-			log.Error().Err(err).Msg("making request")
+			jw.log.Error().Err(err).Msg("making request")
 			errcount += 1
 		}
-		stats[code] += r
+		jw.Results[code] += r
 		count += r
-		log.Debug().Int("count", count).Msg("status")
+		jw.log.Debug().Int("count", count).Int("code", code).Dur("ms", dur).Msg("status")
 	}
+
+	jw.Done = true
 }
 
-func makeRequest(url string) (int, int, error) {
+func makeRequest(url string) (int, int, time.Duration, error) {
+	start := time.Now()
 	resp, err := http.Get(url)
+	dur := time.Now().Sub(start)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, dur, err
 	}
 
-	return resp.StatusCode, 1, nil
+	return resp.StatusCode, 1, dur, nil
 }

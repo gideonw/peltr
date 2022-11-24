@@ -25,10 +25,7 @@ type WorkerConnection struct {
 	/// State
 	// new
 	// hello
-	// named
-	// idle
-	// idle-ping
-	// working
+	// status
 	State       string
 	LastSeen    time.Time
 	AssignedJob proto.Job
@@ -47,9 +44,6 @@ func NewWorkerConnection(logger zerolog.Logger, conn net.Conn) *WorkerConnection
 }
 
 func (wc *WorkerConnection) AssignJob(job proto.Job) (bool, error) {
-	if wc.State != "idle" {
-		return false, nil
-	}
 	wc.AssignedJob = job
 
 	return true, nil
@@ -142,6 +136,8 @@ func (wc *WorkerConnection) Handle() {
 			lastPing = time.Now()
 			wc.updateState("idle")
 		case bytes.Compare(command, proto.CommandWorking):
+			wc.updateState("working")
+		case bytes.Compare(command, proto.CommandUpdate):
 			wc.updateState("working")
 		}
 	}

@@ -31,31 +31,6 @@ func TestChompCommand(t *testing.T) {
 	if string(b) != "" {
 		t.Errorf("'%s' != ''", b)
 	}
-
-	buf = make([]byte, 256)
-	testMessage = proto.MakeMessageString(proto.CommandPong, "")
-	copy(buf, testMessage)
-
-	a, b = proto.ChompCommand(testMessage)
-	if string(a) != string(proto.CommandPong) {
-		t.Errorf("'%s' != pong", a)
-	}
-	if string(b) != "" {
-		t.Errorf("'%s' != ''", b)
-	}
-
-	buf = make([]byte, 256)
-	testMessage = proto.MakeMessageString(proto.CommandPing, "")
-	copy(buf, testMessage)
-
-	a, b = proto.ChompCommand(testMessage)
-	if string(a) != string(proto.CommandPing) {
-		t.Errorf("'%s' != ping", a)
-	}
-	if string(b) != "" {
-		t.Errorf("'%s' != ''", b)
-	}
-
 }
 
 func TestMakeMessageByte(t *testing.T) {

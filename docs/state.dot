@@ -1,0 +1,37 @@
+digraph finite_state_machine {
+  subgraph server_client {
+    label = "server-client";
+    node [shape = circle; width = 0.9;];
+    
+    /**
+     * Entities
+     */
+    new [shape = doublecircle;style = filled;];
+    hello;
+    status;
+    accept;
+    
+    /**
+     * Relationships
+     */
+    new -> hello;
+    hello -> status [label = "identify";];
+    status -> status [label = "status";];
+    status -> accept [label = "assign";];
+    accept -> status [label = "status";];
+  }
+  subgraph client {
+    label = "client";
+    node [shape = circle; width = 0.9;];
+    c_new [shape = doublecircle;style = filled;];
+    c_identify;
+    c_status;
+    c_assign;
+    
+    c_new -> c_identify [label = "hello";];
+    c_identify -> c_status;
+    c_status -> c_status [label = "status";];
+    c_status -> c_assign [label = "assign";];
+    c_assign -> c_status [label = "accept";];
+  }
+}
