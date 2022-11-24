@@ -76,6 +76,9 @@ func (r *runtime) ControlLoop() {
 
 		// Assign jobs to workers
 		for i := range r.Workers {
+			if len(r.JobQueue) == 0 {
+				break
+			}
 			if r.Workers[i].State == "alive" {
 				job := r.JobQueue[0]
 				r.Workers[i].AssignJob(job)
