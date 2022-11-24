@@ -74,21 +74,20 @@ func (wr *workerRuntime) Close() {
 }
 
 func (wr *workerRuntime) Handle() {
-	// start := time.Now()
-
 	for wr.State != "closed" {
 		b := make([]byte, 256)
 
-		_, err := wr.read(b)
+		n, err := wr.read(b)
 		if err != nil {
 			break
 		}
+		if n != 0 {
+			command, msg := proto.ChompCommand(b)
+			wr.log.Debug().Str("cmd", string(command)).Msg("chomp")
+			wr.log.Trace().Bytes("msg", msg).Msg("chomp")
 
-		command, msg := proto.ChompCommand(b)
-		wr.log.Debug().Str("cmd", string(command)).Msg("chomp")
-		wr.log.Trace().Bytes("msg", msg).Msg("chomp")
-
-		wr.processInput(command, msg)
+			wr.processInput(command, msg)
+		}
 
 		wr.processState()
 
@@ -97,11 +96,20 @@ func (wr *workerRuntime) Handle() {
 }
 
 func (wr *workerRuntime) read(b []byte) (int, error) {
+	err := wr.conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err != nil {
+		wr.log.Error().Err(err).Msg("unable to set read deadline")
+		return 0, nil
+	}
 	n, err := wr.conn.Read(b)
 	if err == io.EOF {
 		wr.log.Error().Err(err).Msg("disconnected")
 		wr.State = "closed"
 		return n, err
+	} else if err, ok := err.(net.Error); ok && err.Timeout() {
+		// timeout is fine since we have a deadline and don't want to block forever
+		wr.log.Error().Err(err).Msg("error reading from conn")
+		return 0, nil
 	} else if err != nil {
 		wr.log.Error().Err(err).Msg("error reading from conn")
 		return n, err
@@ -138,8 +146,8 @@ func (wr *workerRuntime) processInput(cmd, msg []byte) {
 	switch 0 {
 	case bytes.Compare(cmd, proto.CommandHello):
 		wr.updateState("identify")
-	case bytes.Compare(cmd, proto.CommandPing):
-		wr.updateState("ping")
+	case bytes.Compare(cmd, proto.CommandAlive):
+		wr.updateState("alive")
 	case bytes.Compare(cmd, proto.CommandAssign):
 		// Parse Job
 		job, err := proto.ParseAssign(msg)
@@ -164,24 +172,20 @@ func (wr *workerRuntime) processState() {
 			log.Error().Err(err).Msg("error sending")
 			wr.updateState("new")
 		}
-		wr.updateState("idle")
-	case "idle":
-	case "ping":
-		err := wr.sendPong()
+		wr.updateState("alive")
+
+	case "alive":
+		err := wr.sendStatus()
 		if err != nil {
 			log.Error().Err(err).Msg("error sending")
 		}
+		wr.updateState("alive")
 	case "assign":
-		// go HandleJob(wr.log, job.Jobs[0])
-		err := wr.sendWorking()
+		err := wr.sendAccept()
 		if err != nil {
 			log.Error().Err(err).Msg("error sending")
 		}
-	case "working":
-		err := wr.sendUpdate()
-		if err != nil {
-			log.Error().Err(err).Msg("error sending")
-		}
+		wr.updateState("alive")
 	}
 }
 
@@ -197,45 +201,39 @@ func (wr *workerRuntime) sendIdentify() error {
 	return nil
 }
 
-func (wr *workerRuntime) sendPong() error {
-	n, err := wr.conn.Write(proto.MakeMessageByte(proto.CommandPong, nil))
+func (wr *workerRuntime) sendStatus() error {
+	n, err := wr.conn.Write(proto.MakeMessageStruct(proto.CommandStatus, wr.compileStatus()))
 	if err != nil {
 		return err
 	}
-	wr.log.Info().Str("type", "pong").Int("bytes", n).Msg("wrote")
-	return nil
-}
-
-func (wr *workerRuntime) sendWorking() error {
-	n, err := wr.conn.Write(proto.MakeMessageByte(proto.CommandWorking, nil))
-	if err != nil {
-		return err
-	}
-	wr.log.Info().Str("type", "working").Int("bytes", n).Msg("wrote")
+	wr.log.Info().Str("type", "status").Int("bytes", n).Msg("wrote")
 
 	return nil
 }
 
-func (wr *workerRuntime) sendUpdate() error {
-	if len(wr.Workers) == 0 {
-		return fmt.Errorf("no current job")
+func (wr *workerRuntime) sendAccept() error {
+	n, err := wr.conn.Write(proto.MakeMessageStruct(proto.CommandAccept, wr.compileStatus()))
+	if err != nil {
+		return err
 	}
-	updates := []proto.Update{}
+	wr.log.Info().Str("type", "status").Int("bytes", n).Msg("wrote")
+
+	return nil
+}
+
+func (wr *workerRuntime) compileStatus() proto.Status {
+	status := proto.Status{
+		JobQueue:   wr.JobQueue,
+		ActiveJobs: []proto.Job{},
+		Results:    make(map[string]map[int]int),
+	}
 	for i := range wr.Workers {
+		status.ActiveJobs = append(status.ActiveJobs, wr.Workers[i].Job)
 		if wr.Workers[i].Done {
-			updates = append(updates, proto.Update{
-				ID:      wr.Workers[i].Job.ID,
-				Results: wr.Workers[i].Results,
-			})
+			status.Results[wr.Workers[i].Job.ID] = wr.Workers[i].Results
 		}
 	}
-	n, err := wr.conn.Write(proto.MakeMessageStruct(proto.CommandUpdate, updates))
-	if err != nil {
-		return err
-	}
-	wr.log.Info().Str("type", "working").Int("bytes", n).Msg("wrote")
-
-	return nil
+	return status
 }
 
 func (wr *workerRuntime) updateState(s string) {

@@ -8,30 +8,31 @@ digraph finite_state_machine {
      */
     new [shape = doublecircle;style = filled;];
     hello;
-    status;
+    alive;
     accept;
     
     /**
      * Relationships
      */
     new -> hello;
-    hello -> status [label = "identify";];
-    status -> status [label = "status";];
-    status -> accept [label = "assign";];
-    accept -> status [label = "status";];
+    hello -> alive [label = "identify";];
+    alive -> alive [label = "status";];
+    alive -> accept [label = "assign";];
+    accept -> alive [label = "status";];
   }
   subgraph client {
     label = "client";
     node [shape = circle; width = 0.9;];
     c_new [shape = doublecircle;style = filled;];
     c_identify;
-    c_status;
+    c_alive;
     c_assign;
     
     c_new -> c_identify [label = "hello";];
-    c_identify -> c_status;
-    c_status -> c_status [label = "status";];
-    c_status -> c_assign [label = "assign";];
-    c_assign -> c_status [label = "accept";];
+    // todo: identify return to ensure ID is set on server
+    c_identify -> c_alive [label = "identify";];
+    c_alive -> c_alive [label = "status";];
+    c_alive -> c_assign [label = "assign";];
+    c_assign -> c_alive [label = "accept";];
   }
 }

@@ -28,16 +28,16 @@ func (r *runtime) HandleJob(rw http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	r.Jobs = append(r.Jobs, j)
+	r.JobQueue = append(r.JobQueue, j)
 }
 
-func (r *runtime) HandleListJobs(rw http.ResponseWriter, req *http.Request) {
+func (r *runtime) HandleListJobQueue(rw http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodGet {
 		rw.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
 
-	b, err := json.Marshal(r.Jobs)
+	b, err := json.Marshal(r.JobQueue)
 	if err != nil {
 		rw.WriteHeader(http.StatusInternalServerError)
 		return

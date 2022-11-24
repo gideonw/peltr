@@ -3,7 +3,6 @@ package server
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"syscall"
@@ -22,13 +21,18 @@ type WorkerConnection struct {
 	Conn     net.Conn
 	ID       string
 	Capacity uint
-	/// State
-	// new
-	// hello
-	// status
-	State       string
-	LastSeen    time.Time
-	AssignedJob proto.Job
+	// State
+	// - new
+	// - hello
+	// - alive
+	State    string
+	LastSeen time.Time
+	// Server assigned jobs that have not been accepted or sent
+	JobQueue []proto.Job
+	// Server assigned jobs that have not been accepted
+	AssignJobQueue []proto.Job
+	// Jobs accepted by the worker
+	AcceptedJobs []proto.Job
 	// TODO handles to provide state to the runtime
 }
 
@@ -43,15 +47,14 @@ func NewWorkerConnection(logger zerolog.Logger, conn net.Conn) *WorkerConnection
 	}
 }
 
-func (wc *WorkerConnection) AssignJob(job proto.Job) (bool, error) {
-	wc.AssignedJob = job
-
-	return true, nil
+func (wc *WorkerConnection) AssignJob(job proto.Job) {
+	wc.JobQueue = append(wc.JobQueue, job)
+	wc.updateState("accept")
 }
 
 func (wc *WorkerConnection) Handle() {
 	wc.log.Info().Str("remote", wc.Conn.RemoteAddr().String()).Str("local", wc.Conn.LocalAddr().String()).Msg("handling connection")
-	lastPing := time.Now().Add(2 * time.Second)
+	wc.LastSeen = time.Now().Add(2 * time.Second)
 	for {
 		var err error
 		data := make([]byte, 256)
@@ -62,26 +65,25 @@ func (wc *WorkerConnection) Handle() {
 		case "new":
 			err = wc.sendHello()
 		case "hello":
-			wc.updateState("idle")
+			wc.updateState("alive")
 			continue
-		case "idle":
-			// Loop while idle to wait for a job or ping
+		case "alive":
 			for {
-				if wc.AssignedJob.ID != "" {
-					// TODO: Job logic
+				if len(wc.JobQueue) > 0 {
 					err = wc.sendAssign()
+					wc.updateState("accept")
 					break
-				} else if time.Now().Sub(lastPing) > PING_INTERVAL {
-					err = wc.sendPing()
-					wc.updateState("idle-ping")
+				} else if time.Since(wc.LastSeen) > PING_INTERVAL {
+					err = wc.sendAlive()
+					wc.updateState("alive")
 					break
 				}
 			}
-		case "working":
-			wc.log.Info().Msg("working")
-		case "done":
-			fmt.Println("done")
+		case "accept":
+			wc.log.Info().Msg("waiting for next status for accept")
+			// wc.updateState("alive")
 		}
+
 		// Check for write errors
 		if errors.Is(err, syscall.EPIPE) {
 			wc.log.Error().Err(err).Msg("EPIPE Connection closed")
@@ -108,6 +110,7 @@ func (wc *WorkerConnection) Handle() {
 		command, message := proto.ChompCommand(data)
 		switch 0 {
 		case bytes.Compare(command, proto.CommandHello):
+			wc.log.Info().Str("cmd", "hello").Msg("identify")
 			if wc.State != "new" {
 				wc.log.Error().Msgf("Expected 'new' state, got %s. Disconnecting", wc.State)
 				wc.Conn.Close()
@@ -126,22 +129,16 @@ func (wc *WorkerConnection) Handle() {
 			wc.Capacity = data.Capacity
 
 			wc.updateState("hello")
-		case bytes.Compare(command, proto.CommandPong):
-			if wc.State != "idle-ping" {
-				wc.log.Error().Msgf("Expected 'idle-ping' state, got %s. Disconnecting", wc.State)
-				wc.Conn.Close()
-				return
-			}
-
-			lastPing = time.Now()
-			wc.updateState("idle")
-		case bytes.Compare(command, proto.CommandWorking):
-			wc.updateState("working")
-		case bytes.Compare(command, proto.CommandUpdate):
-			wc.updateState("working")
+		case bytes.Compare(command, proto.CommandStatus):
+			wc.log.Info().Str("cmd", "status").Msg("sync jobs")
+			wc.syncJobs(message)
+			wc.updateState("alive")
+		case bytes.Compare(command, proto.CommandAccept):
+			wc.log.Info().Str("cmd", "accept").Msg("sync jobs")
+			wc.syncJobs(message)
+			wc.updateState("alive")
 		}
 	}
-
 }
 
 func (wc *WorkerConnection) updateState(state string) {
@@ -158,9 +155,9 @@ func (wc *WorkerConnection) sendHello() error {
 	return err
 }
 
-func (wc *WorkerConnection) sendPing() error {
-	wc.log.Debug().Str("type", "ping").Msg("send")
-	n, err := wc.Conn.Write(proto.MakeMessageByte(proto.CommandPing, nil))
+func (wc *WorkerConnection) sendAlive() error {
+	wc.log.Debug().Str("type", "alive").Msg("send")
+	n, err := wc.Conn.Write(proto.MakeMessageByte(proto.CommandAlive, nil))
 	wc.log.Debug().Int("bytes", n).Msg("write")
 
 	return err
@@ -168,11 +165,51 @@ func (wc *WorkerConnection) sendPing() error {
 
 func (wc *WorkerConnection) sendAssign() error {
 	wc.log.Debug().Str("type", "assign").Msg("send")
-	n, err := wc.Conn.Write(proto.MakeMessageStruct(proto.CommandAssign, proto.Assign{Jobs: []proto.Job{wc.AssignedJob}}))
+	n, err := wc.Conn.Write(proto.MakeMessageStruct(proto.CommandAssign, proto.Assign{Jobs: wc.JobQueue}))
 	if err != nil {
 		return err
 	}
 	wc.log.Debug().Int("bytes", n).Msg("write")
 
+	wc.AssignJobQueue = wc.JobQueue[:]
+	wc.JobQueue = wc.JobQueue[0:0]
+
 	return nil
+}
+
+func (wc *WorkerConnection) syncJobs(b []byte) error {
+	status, err := proto.ParseStatus(b)
+	if err != nil {
+		return err
+	}
+
+	for i := range status.ActiveJobs {
+		found := false
+		foundID := ""
+		for j := range wc.AcceptedJobs {
+			found = wc.AcceptedJobs[j].ID == status.ActiveJobs[i].ID
+			if found {
+				foundID = status.ActiveJobs[i].ID
+				break
+			}
+		}
+		if found {
+			for i := range wc.AssignJobQueue {
+				if foundID == wc.AssignJobQueue[i].ID {
+					job := wc.AssignJobQueue[i]
+					wc.AssignJobQueue = append(wc.AssignJobQueue[0:i], wc.AssignJobQueue[min(i+1, len(wc.AssignJobQueue)):]...)
+					wc.AcceptedJobs = append(wc.AcceptedJobs, job)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func min(a, b int) int {
+	if a >= b {
+		return b
+	}
+	return a
 }

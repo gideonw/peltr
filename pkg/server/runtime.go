@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"time"
@@ -16,27 +17,29 @@ type Runtime interface {
 	Close()
 	AddWorker(conn net.Conn) *WorkerConnection
 	HandleJob(rw http.ResponseWriter, req *http.Request)
-	HandleListJobs(rw http.ResponseWriter, req *http.Request)
+	HandleListJobQueue(rw http.ResponseWriter, req *http.Request)
 	HandleListWorkers(rw http.ResponseWriter, req *http.Request)
 }
 
 type runtime struct {
-	metrics Metrics
-	log     zerolog.Logger
-	socket  *net.TCPListener
-	port    int
-	Workers []*WorkerConnection
-	Jobs    []proto.Job
+	metrics      Metrics
+	log          zerolog.Logger
+	socket       *net.TCPListener
+	port         int
+	Workers      []*WorkerConnection
+	JobQueue     []proto.Job
+	AssignedJobs []proto.Job
 }
 
 func NewRuntime(m Metrics, logger zerolog.Logger, port int) Runtime {
 	return &runtime{
-		metrics: m,
-		log:     logger,
-		socket:  nil,
-		port:    port,
-		Workers: []*WorkerConnection{},
-		Jobs:    []proto.Job{},
+		metrics:      m,
+		log:          logger,
+		socket:       nil,
+		port:         port,
+		Workers:      []*WorkerConnection{},
+		JobQueue:     []proto.Job{},
+		AssignedJobs: []proto.Job{},
 	}
 }
 
@@ -66,23 +69,30 @@ func (r *runtime) HandleConnections() {
 
 func (r *runtime) ControlLoop() {
 	for {
-		if len(r.Jobs) <= 0 {
+		if len(r.JobQueue) <= 0 {
 			time.Sleep(10 * time.Millisecond)
 			continue
 		}
+
 		// Assign jobs to workers
 		for i := range r.Workers {
-			if r.Workers[i].State == "idle" {
-				job := r.Jobs[0]
-				success, err := r.Workers[i].AssignJob(job)
-				if err != nil {
-					r.log.Error().Err(err)
-					continue
-				}
-				if !success {
-					r.log.Info().Str("workerID", r.Workers[i].ID).Str("workerState", r.Workers[i].State).Msg("Unable to assign job")
-				}
-				r.Jobs = r.Jobs[0:]
+			if r.Workers[i].State == "alive" {
+				job := r.JobQueue[0]
+				r.Workers[i].AssignJob(job)
+				r.AssignedJobs = append(r.AssignedJobs, job)
+				r.JobQueue = r.JobQueue[1:]
+				r.log.Debug().Func(func(e *zerolog.Event) {
+					l := e.Int("jobQueue", len(r.JobQueue))
+					for i := range r.JobQueue {
+						l.Str(fmt.Sprint(i), r.JobQueue[i].ID)
+					}
+				}).Msg("jobQueue items")
+
+				r.log.Info().
+					Str("workerID", r.Workers[i].ID).
+					Str("workerState", r.Workers[i].State).
+					Str("JobID", job.ID).
+					Msg("Assigned job")
 			}
 		}
 	}

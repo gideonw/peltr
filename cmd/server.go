@@ -31,7 +31,7 @@ func (sc *ServerCommand) Execute(args []string) error {
 	go runtime.ControlLoop()
 
 	http.HandleFunc("/workers", runtime.HandleListWorkers)
-	http.HandleFunc("/jobs", runtime.HandleListJobs)
+	http.HandleFunc("/jobs", runtime.HandleListJobQueue)
 	http.HandleFunc("/job", runtime.HandleJob)
 	http.Handle("/metrics", promhttp.Handler())
 	http.ListenAndServe(fmt.Sprintf(":%d", sc.MetricsPort), nil)

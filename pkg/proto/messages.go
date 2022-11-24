@@ -14,10 +14,13 @@ type Assign struct {
 	Jobs []Job `json:"jobs"`
 }
 
-type Update struct {
-	// ID job id for the stats
-	ID      string
-	Results map[int]int
+type Status struct {
+	// JobQueue of accepted jobs
+	JobQueue []Job
+	// ActiveJobs are the jobs currently being worked
+	ActiveJobs []Job
+	// [JobID]: [StatusCode]count
+	Results map[string]map[int]int
 }
 
 func ParseIdentify(b []byte) (Identify, error) {
@@ -36,8 +39,8 @@ func ParseAssign(b []byte) (Assign, error) {
 	return ret, err
 }
 
-func ParseUpdate(b []byte) ([]Update, error) {
-	var ret []Update
+func ParseStatus(b []byte) (Status, error) {
+	var ret Status
 	buf := bytes.NewBuffer(b)
 	dec := gob.NewDecoder(buf)
 	err := dec.Decode(&ret)
