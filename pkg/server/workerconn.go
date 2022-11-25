@@ -57,7 +57,7 @@ func (wc *WorkerConnection) Handle() {
 	wc.LastSeen = time.Now().Add(2 * time.Second)
 	for {
 		var err error
-		data := make([]byte, 256)
+		data := make([]byte, 4096)
 
 		// Write to the client depending on state
 		wc.log.Debug().Str("state", wc.State).Msg("process state")

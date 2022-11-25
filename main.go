@@ -33,21 +33,13 @@ func init() {
 		"Job running worker",
 		"Worker to run and process jobs and send metrics collected to the server",
 		&cmd.WorkerCmd)
+	parser.AddCommand("test",
+		"Create test jobs",
+		"Create and send unique test jobs",
+		&cmd.TestCmd)
 }
 
 func main() {
-	// j := proto.Job{
-	// 	ID:          "testid",
-	// 	URL:         "localhost:2112/metrics",
-	// 	Req:         100,
-	// 	Concurrency: 10,
-	// 	Duration:    10,
-	// 	Rate:        10,
-	// }
-
-	// b, _ := json.Marshal(j)
-	// fmt.Println(string(b))
-
 	if _, err := parser.Parse(); err != nil {
 		switch flagsErr := err.(type) {
 		case flags.ErrorType:

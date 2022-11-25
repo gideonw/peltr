@@ -75,7 +75,7 @@ func (wr *workerRuntime) Close() {
 
 func (wr *workerRuntime) Handle() {
 	for wr.State != "closed" {
-		b := make([]byte, 256)
+		b := make([]byte, 4096)
 
 		n, err := wr.read(b)
 		if err != nil {
@@ -135,7 +135,7 @@ func (wr *workerRuntime) scheduler() {
 	wr.JobQueue = wr.JobQueue[1:]
 
 	// create the worker and keep track of it
-	jw := NewJobWorker(wr.log, job)
+	jw := NewJobWorker(wr.log, wr.metrics, job)
 	wr.Workers = append(wr.Workers, jw)
 
 	// metrics

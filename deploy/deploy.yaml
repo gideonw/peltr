@@ -118,7 +118,7 @@ spec:
       app: peltr-server
   endpoints:
     - port: web
-      interval: 30s
+      interval: 1s
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
@@ -133,7 +133,7 @@ spec:
       app: peltr-worker
   endpoints:
     - port: web
-      interval: 30s
+      interval: 1s
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -150,5 +150,25 @@ spec:
             backend:
               service:
                 name: "peltr-server-api"
+                port:
+                  name: web
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: peltr-worker
+  namespace: peltr
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  rules:
+    - host: peltr.localhost
+      http:
+        paths:
+          - pathType: Prefix
+            path: "/wrk(/|$)(.*)"
+            backend:
+              service:
+                name: "peltr-worker"
                 port:
                   name: web

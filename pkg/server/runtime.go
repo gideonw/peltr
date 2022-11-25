@@ -99,7 +99,19 @@ func (r *runtime) ControlLoop() {
 					Msg("Assigned job")
 			}
 		}
+
+		r.Workers = shiftSlice(r.Workers)
 	}
+}
+
+func shiftSlice[V *WorkerConnection](s []V) []V {
+	if len(s) <= 1 {
+		return s
+	}
+	temp := s[0]
+	ret := s[1:]
+	ret = append(ret, temp)
+	return ret
 }
 
 func (r *runtime) Close() {

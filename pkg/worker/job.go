@@ -10,16 +10,18 @@ import (
 )
 
 type JobWorker struct {
-	log zerolog.Logger
+	log     zerolog.Logger
+	metrics Metrics
 
 	Done    bool
 	Results map[int]int
 	Job     proto.Job
 }
 
-func NewJobWorker(log zerolog.Logger, j proto.Job) JobWorker {
+func NewJobWorker(log zerolog.Logger, metrics Metrics, j proto.Job) JobWorker {
 	return JobWorker{
 		log:     log,
+		metrics: metrics,
 		Done:    false,
 		Results: make(map[int]int),
 		Job:     j,
@@ -52,6 +54,8 @@ func (jw *JobWorker) HandleJob() {
 		}
 		jw.Results[code] += r
 		count += r
+		jw.metrics.IncJobRequestCount(jw.Job.ID, code)
+		jw.metrics.ObserveJobRequestDurations(jw.Job.ID, code, dur)
 		jw.log.Debug().Int("count", count).Int("code", code).Dur("ms", dur).Msg("status")
 	}
 
