@@ -74,14 +74,16 @@ func (wr *workerRuntime) Close() {
 }
 
 func (wr *workerRuntime) Handle() {
+	buffer := make([]byte, 4096)
 	for wr.State != "closed" {
-		b := make([]byte, 4096)
 
-		n, err := wr.read(b)
+		n, err := wr.read(buffer)
 		if err != nil {
 			break
 		}
 		if n != 0 {
+			b := make([]byte, n)
+			copy(b, buffer[:n])
 			command, msg := proto.ChompCommand(b)
 			wr.log.Debug().Str("cmd", string(command)).Msg("chomp")
 			wr.log.Trace().Bytes("msg", msg).Msg("chomp")

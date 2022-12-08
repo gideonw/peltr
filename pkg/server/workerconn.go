@@ -55,9 +55,9 @@ func (wc *WorkerConnection) AssignJob(job proto.Job) {
 func (wc *WorkerConnection) Handle() {
 	wc.log.Info().Str("remote", wc.Conn.RemoteAddr().String()).Str("local", wc.Conn.LocalAddr().String()).Msg("handling connection")
 	wc.LastSeen = time.Now().Add(2 * time.Second)
+	buffer := make([]byte, 4096)
 	for {
 		var err error
-		data := make([]byte, 4096)
 
 		// Write to the client depending on state
 		wc.log.Debug().Str("state", wc.State).Msg("process state")
@@ -94,7 +94,7 @@ func (wc *WorkerConnection) Handle() {
 		}
 
 		// Read from the client
-		n, err := wc.Conn.Read(data)
+		n, err := wc.Conn.Read(buffer)
 		wc.log.Debug().Int("bytes", n).Msg("read")
 		if errors.Is(err, syscall.EPIPE) {
 			wc.log.Error().Err(err).Msg("EPIPE Connection closed")
@@ -107,7 +107,10 @@ func (wc *WorkerConnection) Handle() {
 			return
 		}
 
-		command, message := proto.ChompCommand(data)
+		// Copy our data out
+		msg := make([]byte, n)
+		copy(msg, buffer[:n])
+		command, message := proto.ChompCommand(msg)
 		switch 0 {
 		case bytes.Compare(command, proto.CommandHello):
 			wc.log.Info().Str("cmd", "hello").Msg("identify")
