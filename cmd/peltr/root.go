@@ -19,8 +19,10 @@ var rootCmd = &cobra.Command{
 	Use:   "peltr",
 	Short: "peltr is a cloud native load testing and testing tool",
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		initLogging()
-		// TODO: Trace log config and options
+		logger := initLogging()
+		for _, v := range viper.AllKeys() {
+			logger.Trace().Interface(v, viper.Get(v)).Send()
+		}
 	},
 }
 
@@ -49,7 +51,7 @@ func initConfig() {
 	// config Read
 }
 
-func initLogging() {
+func initLogging() zerolog.Logger {
 	level := viper.GetInt("verbose")
 	switch clamp(2, level) {
 	case 2:
@@ -77,6 +79,7 @@ func initLogging() {
 		Logger()
 
 	viper.Set("logger", logger)
+	return logger
 }
 
 func clamp(clamp, a int) int {
