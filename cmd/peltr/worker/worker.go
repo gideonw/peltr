@@ -2,13 +2,12 @@ package worker
 
 import (
 	"fmt"
-	"net/http"
-
 	"github.com/gideonw/peltr/pkg/worker"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"net/http"
 )
 
 var Command = &cobra.Command{
@@ -31,7 +30,11 @@ var Command = &cobra.Command{
 		go runtime.Handle()
 
 		http.Handle("/metrics", promhttp.Handler())
-		http.ListenAndServe(fmt.Sprintf(":%d", viper.GetInt("prom-http")), nil)
+		err = http.ListenAndServe(fmt.Sprintf(":%d", viper.GetInt("prom-http")), nil)
+		if err != nil {
+			log.Fatal().Err(err).Msg("error starting prom-http")
+			return
+		}
 	},
 }
 
