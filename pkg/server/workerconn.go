@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"errors"
 	"io"
 	"net"
@@ -55,7 +54,6 @@ func (wc *WorkerConnection) AssignJob(job proto.Job) {
 func (wc *WorkerConnection) Handle() {
 	wc.log.Info().Str("remote", wc.Conn.RemoteAddr().String()).Str("local", wc.Conn.LocalAddr().String()).Msg("handling connection")
 	wc.LastSeen = time.Now().Add(2 * time.Second)
-	buffer := make([]byte, 4096)
 	for {
 		var err error
 
@@ -93,9 +91,9 @@ func (wc *WorkerConnection) Handle() {
 			return
 		}
 
-		// Read from the client
-		n, err := wc.Conn.Read(buffer)
-		wc.log.Debug().Int("bytes", n).Msg("read")
+		// Read the message from the client
+		var message proto.Message
+		err = message.Read(wc.Conn)
 		if errors.Is(err, syscall.EPIPE) {
 			wc.log.Error().Err(err).Msg("EPIPE Connection closed")
 			return
@@ -107,12 +105,8 @@ func (wc *WorkerConnection) Handle() {
 			return
 		}
 
-		// Copy our data out
-		msg := make([]byte, n)
-		copy(msg, buffer[:n])
-		command, message := proto.ChompCommand(msg)
-		switch 0 {
-		case bytes.Compare(command, proto.CommandHello):
+		switch {
+		case message.Type == proto.MessageTypeIdentify:
 			wc.log.Info().Str("cmd", "hello").Msg("identify")
 			if wc.State != "new" {
 				wc.log.Error().Msgf("Expected 'new' state, got %s. Disconnecting", wc.State)
@@ -121,24 +115,30 @@ func (wc *WorkerConnection) Handle() {
 				return
 			}
 
-			data, err := proto.ParseIdentify(message)
+			var id proto.Identify
+			err := id.Decode(message)
 			if err != nil {
 				wc.log.Error().Err(err)
 				continue
 			}
 
-			wc.ID = data.ID
+			wc.ID = id.ID
 			wc.log = wc.log.With().Str("id", wc.ID).Logger()
-			wc.Capacity = data.Capacity
-
+			wc.Capacity = id.Capacity
 			wc.updateState("hello")
-		case bytes.Compare(command, proto.CommandStatus):
+		case message.Type == proto.MessageTypeStatus || message.Type == proto.MessageTypeAccept:
 			wc.log.Info().Str("cmd", "status").Msg("sync jobs")
-			wc.syncJobs(message)
-			wc.updateState("alive")
-		case bytes.Compare(command, proto.CommandAccept):
-			wc.log.Info().Str("cmd", "accept").Msg("sync jobs")
-			wc.syncJobs(message)
+			var status proto.Status
+			err := status.Decode(message)
+			if err != nil {
+				wc.log.Error().Err(err)
+				continue
+			}
+			err = wc.syncJobs(status)
+			if err != nil {
+				wc.log.Error().Err(err)
+				continue
+			}
 			wc.updateState("alive")
 		}
 	}
@@ -152,40 +152,36 @@ func (wc *WorkerConnection) updateState(state string) {
 
 func (wc *WorkerConnection) sendHello() error {
 	wc.log.Debug().Str("type", "hello").Msg("send")
-	n, err := wc.Conn.Write(proto.MakeMessageByte(proto.CommandHello, nil))
-	wc.log.Debug().Int("bytes", n).Msg("write")
-
+	hello := proto.Message{Type: proto.MessageTypeHello}
+	err := hello.Write(wc.Conn)
 	return err
 }
 
 func (wc *WorkerConnection) sendAlive() error {
 	wc.log.Debug().Str("type", "alive").Msg("send")
-	n, err := wc.Conn.Write(proto.MakeMessageByte(proto.CommandAlive, nil))
-	wc.log.Debug().Int("bytes", n).Msg("write")
-
+	alive := proto.Message{Type: proto.MessageTypeAlive}
+	err := alive.Write(wc.Conn)
 	return err
 }
 
 func (wc *WorkerConnection) sendAssign() error {
 	wc.log.Debug().Str("type", "assign").Msg("send")
-	n, err := wc.Conn.Write(proto.MakeMessageStruct(proto.CommandAssign, proto.Assign{Jobs: wc.JobQueue}))
+	assign := proto.Assign{Jobs: wc.JobQueue}
+	message, err := assign.Encode()
 	if err != nil {
 		return err
 	}
-	wc.log.Debug().Int("bytes", n).Msg("write")
-
+	err = message.Write(wc.Conn)
+	if err != nil {
+		return err
+	}
 	wc.AssignJobQueue = wc.JobQueue[:]
 	wc.JobQueue = wc.JobQueue[0:0]
 
 	return nil
 }
 
-func (wc *WorkerConnection) syncJobs(b []byte) error {
-	status, err := proto.ParseStatus(b)
-	if err != nil {
-		return err
-	}
-
+func (wc *WorkerConnection) syncJobs(status proto.Status) error {
 	for i := range status.ActiveJobs {
 		found := false
 		foundID := ""
