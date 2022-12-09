@@ -1,7 +1,6 @@
 package worker
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"net"
@@ -74,25 +73,15 @@ func (wr *workerRuntime) Close() {
 }
 
 func (wr *workerRuntime) Handle() {
-	buffer := make([]byte, 4096)
 	for wr.State != "closed" {
-
-		n, err := wr.read(buffer)
+		var message proto.Message
+		err := message.Read(wr.conn)
 		if err != nil {
 			break
 		}
-		if n != 0 {
-			b := make([]byte, n)
-			copy(b, buffer[:n])
-			command, msg := proto.ChompCommand(b)
-			wr.log.Debug().Str("cmd", string(command)).Msg("chomp")
-			wr.log.Trace().Bytes("msg", msg).Msg("chomp")
 
-			wr.processInput(command, msg)
-		}
-
+		wr.processInput(message)
 		wr.processState()
-
 		wr.scheduler()
 	}
 }
@@ -147,23 +136,22 @@ func (wr *workerRuntime) scheduler() {
 	go jw.HandleJob()
 }
 
-func (wr *workerRuntime) processInput(cmd, msg []byte) {
-	switch 0 {
-	case bytes.Compare(cmd, proto.CommandHello):
+func (wr *workerRuntime) processInput(message proto.Message) {
+	switch message.Type {
+	case proto.MessageTypeHello:
 		wr.updateState("identify")
-	case bytes.Compare(cmd, proto.CommandAlive):
+	case proto.MessageTypeAlive:
 		wr.updateState("alive")
-	case bytes.Compare(cmd, proto.CommandAssign):
-		// Parse Job
-		job, err := proto.ParseAssign(msg)
+	case proto.MessageTypeAssign:
+		var job proto.Assign
+		err := job.Decode(message)
 		if err != nil {
 			wr.log.Error().Str("type", "assign").Err(err).Msg("error parsing message")
 		}
 		wr.JobQueue = append(wr.JobQueue, job.Jobs...)
-
 		wr.updateState("assign")
 	default:
-		wr.log.Error().Msgf("Unknown command '%s','%s'\n", cmd, msg)
+		// wr.log.Error().Msgf("Unknown command '%s','%s'\n", cmd, msg)
 	}
 }
 
@@ -195,33 +183,53 @@ func (wr *workerRuntime) processState() {
 }
 
 func (wr *workerRuntime) sendIdentify() error {
-	n, err := wr.conn.Write(proto.MakeMessageStruct(proto.CommandHello, proto.Identify{
+	identify := proto.Identify{
 		ID:       wr.ID,
 		Capacity: wr.Capacity,
-	}))
+	}
+
+	message, err := identify.Encode()
 	if err != nil {
 		return err
 	}
-	wr.log.Info().Str("type", "hello").Int("bytes", n).Msg("wrote")
+
+	err = message.Write(wr.conn)
+	if err != nil {
+		return err
+	}
+
+	wr.log.Info().Str("type", "identify").Msg("wrote")
 	return nil
 }
 
 func (wr *workerRuntime) sendStatus() error {
-	n, err := wr.conn.Write(proto.MakeMessageStruct(proto.CommandStatus, wr.compileStatus()))
+	status := wr.compileStatus()
+	message, err := status.Encode()
 	if err != nil {
 		return err
 	}
-	wr.log.Info().Str("type", "status").Int("bytes", n).Msg("wrote")
 
+	err = message.Write(wr.conn)
+	if err != nil {
+		return err
+	}
+	wr.log.Info().Str("type", "status").Msg("wrote")
 	return nil
 }
 
 func (wr *workerRuntime) sendAccept() error {
-	n, err := wr.conn.Write(proto.MakeMessageStruct(proto.CommandAccept, wr.compileStatus()))
+	status := wr.compileStatus()
+	message, err := status.Encode()
 	if err != nil {
 		return err
 	}
-	wr.log.Info().Str("type", "status").Int("bytes", n).Msg("wrote")
+
+	message.Type = proto.MessageTypeAccept
+	err = message.Write(wr.conn)
+	if err != nil {
+		return err
+	}
+	wr.log.Info().Str("type", "status").Msg("wrote")
 
 	return nil
 }
