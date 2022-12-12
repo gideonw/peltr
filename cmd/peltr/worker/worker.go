@@ -2,12 +2,13 @@ package worker
 
 import (
 	"fmt"
+	"net/http"
+
 	"github.com/gideonw/peltr/pkg/worker"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"net/http"
 )
 
 var Command = &cobra.Command{
@@ -18,7 +19,7 @@ var Command = &cobra.Command{
 		log := viper.Get("logger").(zerolog.Logger)
 
 		m := worker.NewMetricsStore()
-		runtime := worker.NewRuntime(m, log, viper.GetString("host"), viper.GetInt("port"))
+		runtime := worker.NewRuntime(m, log, viper.GetString("peltr.host"), viper.GetInt("peltr.port"))
 
 		err := runtime.Connect()
 		if err != nil {
@@ -30,7 +31,7 @@ var Command = &cobra.Command{
 		go runtime.Handle()
 
 		http.Handle("/metrics", promhttp.Handler())
-		err = http.ListenAndServe(fmt.Sprintf(":%d", viper.GetInt("prom-http")), nil)
+		err = http.ListenAndServe(fmt.Sprintf(":%d", viper.GetInt("peltr.prom-http")), nil)
 		if err != nil {
 			log.Fatal().Err(err).Msg("error starting prom-http")
 			return
@@ -40,12 +41,12 @@ var Command = &cobra.Command{
 
 func init() {
 	// Flags for this command
-	Command.Flags().IntP("port", "p", 8000, "Server port to communicate over (-p8000)")
-	Command.Flags().StringP("host", "H", "localhost", "Server host to connect to -Hlocalhost")
-	Command.Flags().IntP("prom-http", "m", 8010, "Set the port for /metrics is bound to (-m8010)")
+	Command.Flags().IntP("concurrency", "j", 100, "Server port to communicate over")
+	Command.Flags().StringP("host", "H", "localhost:8000", "Server host to connect to")
+	Command.Flags().IntP("prom-http", "m", 8010, "Set the port for /metrics")
 
 	// Bind flags to viper
-	viper.BindPFlag("port", Command.Flags().Lookup("port"))
-	viper.BindPFlag("host", Command.Flags().Lookup("host"))
-	viper.BindPFlag("prom-http", Command.Flags().Lookup("prom-http"))
+	viper.BindPFlag("peltr.host", Command.Flags().Lookup("host"))
+	viper.BindPFlag("peltr.prom-http", Command.Flags().Lookup("prom-http"))
+	viper.BindPFlag("peltr.worker.concurrency", Command.Flags().Lookup("concurrency"))
 }

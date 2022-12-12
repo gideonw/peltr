@@ -19,7 +19,7 @@ var Command = &cobra.Command{
 		log := viper.Get("logger").(zerolog.Logger)
 
 		m := server.NewMetricsStore()
-		runtime := server.NewRuntime(m, log, viper.GetInt("port"))
+		runtime := server.NewRuntime(m, log, viper.GetInt("peltr.port"))
 
 		err := runtime.Listen()
 		if err != nil {
@@ -35,7 +35,7 @@ var Command = &cobra.Command{
 		http.HandleFunc("/jobs", runtime.HandleListJobQueue)
 		http.HandleFunc("/job", runtime.HandleJob)
 		http.Handle("/metrics", promhttp.Handler())
-		http.ListenAndServe(fmt.Sprintf(":%d", viper.GetInt("prom-http")), nil)
+		http.ListenAndServe(fmt.Sprintf(":%d", viper.GetInt("peltr.prom-http")), nil)
 
 	},
 }
@@ -46,6 +46,6 @@ func init() {
 	Command.Flags().Int("prom-http", 8010, "Set the port for /metrics is bound to (-m8010)")
 
 	// Bind flags to viper
-	viper.BindPFlag("port", Command.Flags().Lookup("port"))
-	viper.BindPFlag("prom-http", Command.Flags().Lookup("prom-http"))
+	viper.BindPFlag("peltr.port", Command.Flags().Lookup("port"))
+	viper.BindPFlag("peltr.prom-http", Command.Flags().Lookup("prom-http"))
 }
