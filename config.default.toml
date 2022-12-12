@@ -1,0 +1,6 @@
+[peltr]
+port = 8000
+prom-http = 2112
+
+[peltr.worker]
+concurrency = 0
