@@ -1,5 +1,10 @@
 # peltr
 
+Use cases:
+- Load testing
+- Integration testing (dockerized test deployment in an env for access)
+
+logo idea: peltr is a boxer and fossil is a tree ring recording history
 ## Proto
 ### Spec
 ```
