@@ -8,6 +8,7 @@ package peltr
 
 import (
 	"os"
+	"strings"
 
 	"github.com/gideonw/peltr/cmd/peltr/server"
 	"github.com/gideonw/peltr/cmd/peltr/test"
@@ -40,6 +41,7 @@ func init() {
 	viper.BindPFlag("config", rootCmd.PersistentFlags().Lookup("config"))
 
 	// Bind viper flags to ENV variables
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
 	viper.AutomaticEnv()
 
 	// Register commands on the root binary command

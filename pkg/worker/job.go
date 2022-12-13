@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"time"
 
+	fossil "github.com/dburkart/fossil/api"
 	"github.com/gideonw/peltr/pkg/proto"
 	"github.com/rs/zerolog"
 )
@@ -22,21 +23,24 @@ type JobWorker struct {
 	Done    bool
 	Results map[int]int
 	Job     proto.Job
+	client  fossil.Client
 }
 
-func NewJobWorker(log zerolog.Logger, metrics Metrics, j proto.Job) JobWorker {
+func NewJobWorker(log zerolog.Logger, metrics Metrics, j proto.Job, client fossil.Client) JobWorker {
 	return JobWorker{
 		log:     log,
 		metrics: metrics,
 		Done:    false,
 		Results: make(map[int]int),
 		Job:     j,
+		client:  client,
 	}
 }
 
 func (jw *JobWorker) HandleJob() {
-	// done := make(chan bool)
-	ticker := time.NewTicker(10 * time.Millisecond)
+	tick := (time.Duration(jw.Job.Duration) * time.Second) / time.Duration(jw.Job.Req)
+	jw.log.Debug().Dur("tick", tick).Msg("status")
+	ticker := time.NewTicker(tick)
 
 	count := 0
 	errcount := 0
@@ -60,9 +64,8 @@ func (jw *JobWorker) HandleJob() {
 		}
 		jw.Results[code] += r
 		count += r
-		jw.metrics.IncJobRequestCount(jw.Job.ID, code)
-		jw.metrics.ObserveJobRequestDurations(jw.Job.ID, code, dur)
 		jw.log.Debug().Int("count", count).Int("code", code).Dur("ms", dur).Msg("status")
+		jw.client.Append(fmt.Sprintf("/%s/%d", jw.Job.ID, count), []byte(fmt.Sprint(code)))
 	}
 
 	jw.Done = true
