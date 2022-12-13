@@ -12,6 +12,7 @@ import (
 	"net"
 	"time"
 
+	fossil "github.com/dburkart/fossil/api"
 	"github.com/gideonw/peltr/pkg/proto"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -33,22 +34,32 @@ type workerRuntime struct {
 	ID       string
 	conn     net.Conn
 
+	client fossil.Client
+
 	State string
 
 	JobQueue []proto.Job
 	Workers  []JobWorker
 }
 
-func NewRuntime(m Metrics, logger zerolog.Logger, host string, port int) WorkerRuntime {
+func NewRuntime(m Metrics, logger zerolog.Logger, host string, port int, resultsConnStr string) WorkerRuntime {
 	id, err := uuid.NewRandom()
 	if err != nil {
 		panic(err)
 	}
+
+	// setup results endpoint
+	client, err := fossil.NewClientPool(resultsConnStr, 10)
+	if err != nil {
+		panic(err)
+	}
+
 	return &workerRuntime{
 		log:      logger,
 		metrics:  m,
 		host:     host,
 		port:     port,
+		client:   client,
 		State:    "new",
 		Capacity: 10,
 		ID:       id.String(),
@@ -67,6 +78,8 @@ func (wr *workerRuntime) Connect() error {
 			wr.log.Error().Err(err)
 			retryCount -= 1
 		}
+
+		// TODO: remove this trash
 		time.Sleep(2 * time.Second)
 	}
 	wr.log.Info().Str("addr", wr.conn.RemoteAddr().String()).Msg("worker connected")
@@ -132,7 +145,7 @@ func (wr *workerRuntime) scheduler() {
 	wr.JobQueue = wr.JobQueue[1:]
 
 	// create the worker and keep track of it
-	jw := NewJobWorker(wr.log, wr.metrics, job)
+	jw := NewJobWorker(wr.log, wr.metrics, job, wr.client)
 	wr.Workers = append(wr.Workers, jw)
 
 	// metrics

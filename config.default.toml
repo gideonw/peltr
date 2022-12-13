@@ -1,6 +1,9 @@
 [peltr]
+host = "localhost"
 port = 8000
 prom-http = 2112
 
 [peltr.worker]
 concurrency = 0
+fossil = "fossil://localhost:8001/default"
+prom-http = 2113

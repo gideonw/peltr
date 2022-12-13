@@ -81,7 +81,7 @@ func init() {
 	Command.Flags().IntP("number", "n", 1, "")
 	Command.Flags().IntP("req", "t", 100, "")
 	Command.Flags().IntP("rate", "r", 100, "")
-	Command.Flags().IntP("concurrency", "c", 10, "")
+	Command.Flags().IntP("concurrency", "y", 10, "")
 	Command.Flags().IntP("duration", "s", 10, "")
 	Command.Flags().StringP("host", "H", "", "")
 

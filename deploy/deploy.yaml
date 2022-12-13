@@ -33,6 +33,13 @@ spec:
           imagePullPolicy: Always
           image: gideonw/peltr:latest
           args: ["server"]
+          resources:
+            requests:
+              cpu: 128m
+              memory: 128Mi
+            limits:
+              cpu: 128m
+              memory: 128Mi
           ports:
             - name: web
               containerPort: 8010
@@ -62,6 +69,18 @@ spec:
           ports:
             - name: web
               containerPort: 8010
+          env:
+            - name: PELTR_WORKER_FOSSIL
+              value: "fossil://fossil.fossil.svc.cluster.local:8001/default"
+            - name: PELTR_VERBOSE
+              value: "3"
+          resources:
+            requests:
+              cpu: 128m
+              memory: 128Mi
+            limits:
+              cpu: 128m
+              memory: 128Mi
 ---
 kind: Service
 apiVersion: v1
@@ -69,7 +88,7 @@ metadata:
   name: peltr-server-api
   namespace: peltr
   labels:
-    app: peltr-server
+    app: peltr-server-api
 spec:
   selector:
     app: peltr-server
@@ -109,13 +128,16 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: peltr-server
-  namespace: peltr
+  namespace: monitoring
   labels:
-    tier: server
+    app: peltr
 spec:
+  namespaceSelector:
+    matchNames:
+      - peltr
   selector:
     matchLabels:
-      app: peltr-server
+      app: peltr-server-api
   endpoints:
     - port: web
       interval: 1s
@@ -124,10 +146,13 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: peltr-worker
-  namespace: peltr
+  namespace: monitoring
   labels:
-    tier: worker
+    app: peltr
 spec:
+  namespaceSelector:
+    matchNames:
+      - peltr
   selector:
     matchLabels:
       app: peltr-worker

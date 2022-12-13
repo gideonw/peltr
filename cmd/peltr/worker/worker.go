@@ -25,7 +25,7 @@ var Command = &cobra.Command{
 		log := viper.Get("logger").(zerolog.Logger)
 
 		m := worker.NewMetricsStore()
-		runtime := worker.NewRuntime(m, log, viper.GetString("peltr.host"), viper.GetInt("peltr.port"))
+		runtime := worker.NewRuntime(m, log, viper.GetString("peltr.host"), viper.GetInt("peltr.port"), viper.GetString("peltr.worker.fossil"))
 
 		err := runtime.Connect()
 		if err != nil {
@@ -49,10 +49,12 @@ func init() {
 	// Flags for this command
 	Command.Flags().IntP("concurrency", "j", 100, "Server port to communicate over")
 	Command.Flags().StringP("host", "H", "localhost:8000", "Server host to connect to")
+	Command.Flags().StringP("fossil", "f", "localhost:8001", "Fossil server to connect to")
 	Command.Flags().IntP("prom-http", "m", 8010, "Set the port for /metrics")
 
 	// Bind flags to viper
 	viper.BindPFlag("peltr.host", Command.Flags().Lookup("host"))
 	viper.BindPFlag("peltr.prom-http", Command.Flags().Lookup("prom-http"))
 	viper.BindPFlag("peltr.worker.concurrency", Command.Flags().Lookup("concurrency"))
+	viper.BindPFlag("peltr.worker.fossil", Command.Flags().Lookup("fossil"))
 }
